@@ -14,6 +14,7 @@ import {
   Code2,
   Copy,
   FolderOpen,
+  Loader2,
   Play,
   Save,
   Terminal,
@@ -21,45 +22,36 @@ import {
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-const DEFAULT_PYTHON = `# DataCommand Pro — Python Console
-import pandas as pd
-import numpy as np
-
-# Sample data analysis
-data = {
-    'month': ['Jan', 'Feb', 'Mar', 'Apr', 'May'],
-    'revenue': [45200, 52100, 48700, 61300, 58900],
-    'cost': [28100, 31200, 29800, 35600, 33400]
-}
-
-df = pd.DataFrame(data)
-df['profit'] = df['revenue'] - df['cost']
-df['margin'] = (df['profit'] / df['revenue'] * 100).round(2)
-
-print(df.to_string(index=False))
-print(f"Total Revenue: \${df['revenue'].sum():,}")
-print(f"Total Profit:  \${df['profit'].sum():,}")
-print(f"Avg Margin:    {df['margin'].mean():.1f}%")`;
-
-const SIMULATED_OUTPUT = `[DataCommand Pro] Python Simulation Mode
->>> Executing snippet...
-
- month  revenue   cost  profit  margin
-   Jan    45200  28100   17100   37.83
-   Feb    52100  31200   20900   40.11
-   Mar    48700  29800   18900   38.81
-   Apr    61300  35600   25700   41.92
-   May    58900  33400   25500   43.30
-
-Total Revenue: $266,200
-Total Profit:  $108,100
-Avg Margin:    40.4%
-
-Execution completed in 0.18s
-[Done] - Simulation mode active`;
+const DEFAULT_PYTHON = [
+  "# Data-Analyst Python Console",
+  "# Real Python running in your browser via Pyodide!",
+  "",
+  "data = {",
+  "    'month': ['Jan', 'Feb', 'Mar', 'Apr', 'May'],",
+  "    'revenue': [45200, 52100, 48700, 61300, 58900],",
+  "    'cost': [28100, 31200, 29800, 35600, 33400]",
+  "}",
+  "",
+  "months = data['month']",
+  "revenue = data['revenue']",
+  "cost = data['cost']",
+  "profit = [r - c for r, c in zip(revenue, cost)]",
+  "margin = [round(p/r*100, 2) for p, r in zip(profit, revenue)]",
+  "",
+  'print("Month    Revenue      Cost    Profit   Margin")',
+  'print("-" * 50)',
+  "for i in range(len(months)):",
+  "    r, c, p, m = revenue[i], cost[i], revenue[i]-cost[i], margin[i]",
+  '    print(months[i].ljust(8) + str(r).rjust(10) + str(c).rjust(10) + str(p).rjust(10) + (str(m)+"%").rjust(8))',
+  "",
+  'print("")',
+  'print("Total Revenue: $" + str(sum(revenue)))',
+  'print("Total Profit:  $" + str(sum(profit)))',
+  'print("Avg Margin:    " + str(round(sum(margin)/len(margin),1)) + "%")',
+].join("\n");
 
 export default function PythonConsole() {
   const [code, setCode] = useState(DEFAULT_PYTHON);
@@ -68,18 +60,90 @@ export default function PythonConsole() {
   const [output, setOutput] = useState<string | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [pyReady, setPyReady] = useState(false);
+  const [pyLoading, setPyLoading] = useState(true);
+  const [pyError, setPyError] = useState<string | null>(null);
+  const pyodideRef = useRef<any>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Inject Pyodide script from CDN
+        await new Promise<void>((resolve, reject) => {
+          if ((window as any).loadPyodide) {
+            resolve();
+            return;
+          }
+          const script = document.createElement("script");
+          script.src =
+            "https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js";
+          script.onload = () => resolve();
+          script.onerror = () =>
+            reject(new Error("Failed to load Pyodide script"));
+          document.head.appendChild(script);
+        });
+        if (cancelled) return;
+        const pyodide = await (window as any).loadPyodide({
+          indexURL: "https://cdn.jsdelivr.net/pyodide/v0.27.0/full/",
+        });
+        if (cancelled) return;
+        pyodideRef.current = pyodide;
+        setPyReady(true);
+      } catch (e: any) {
+        if (!cancelled)
+          setPyError(e?.message ?? "Failed to load Python engine");
+      } finally {
+        if (!cancelled) setPyLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleRun = async () => {
     if (!code.trim()) {
       toast.error("Please write some code first");
       return;
     }
+    if (!pyodideRef.current) {
+      toast.error("Python engine not ready");
+      return;
+    }
     setIsRunning(true);
     setOutput(null);
-    await new Promise((r) => setTimeout(r, 700));
-    setOutput(SIMULATED_OUTPUT);
-    setIsRunning(false);
-    toast.success("Code executed (simulation)");
+    try {
+      const py = pyodideRef.current;
+      // Redirect stdout
+      py.runPython(
+        "import sys, io; sys.stdout = io.StringIO(); sys.stderr = io.StringIO()",
+      );
+      try {
+        py.runPython(code);
+      } catch (e: any) {
+        // Get stderr too
+        let errOut = "";
+        try {
+          errOut = py.runPython("sys.stderr.getvalue()");
+        } catch (_) {
+          /* ignore */
+        }
+        const msg = errOut || e?.message || "Unknown error";
+        setOutput(`Error:\n${msg}`);
+        toast.error("Python error — see output");
+        setIsRunning(false);
+        return;
+      }
+      const result = py.runPython("sys.stdout.getvalue()");
+      setOutput(result || "(no output)");
+      toast.success("Code executed successfully");
+    } catch (e: any) {
+      setOutput(`Error: ${e?.message}`);
+      toast.error("Execution failed");
+    } finally {
+      setIsRunning(false);
+    }
   };
 
   const handleSave = () => {
@@ -137,30 +201,46 @@ export default function PythonConsole() {
             Python Console
           </h1>
           <p className="text-xs text-muted-foreground">
-            Write and simulate Python code execution
+            Real Python via Pyodide — runs in your browser
           </p>
         </div>
         <div className="ml-auto">
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
-            Simulation Mode
-          </span>
+          {pyLoading && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-400">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Initializing Python engine...
+            </span>
+          )}
+          {pyReady && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-500/10 border border-green-500/30 text-xs text-green-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+              Live
+            </span>
+          )}
+          {pyError && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-destructive/10 border border-destructive/30 text-xs text-destructive">
+              Failed to load
+            </span>
+          )}
         </div>
       </div>
 
       <div className="flex flex-1 min-h-0">
-        {/* Editor + Output */}
         <div className="flex-1 flex flex-col min-h-0">
           {/* Toolbar */}
           <div className="flex flex-wrap items-center gap-2 px-4 md:px-6 py-3 border-b border-border bg-card/50">
             <Button
               data-ocid="python.run.button"
               onClick={handleRun}
-              disabled={isRunning}
+              disabled={isRunning || !pyReady}
               size="sm"
               className="bg-green-600 hover:bg-green-500 text-white font-semibold"
             >
-              <Play className="w-3.5 h-3.5 mr-1.5" />
+              {isRunning ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Play className="w-3.5 h-3.5 mr-1.5" />
+              )}
               {isRunning ? "Executing..." : "Run Code"}
             </Button>
             <div className="flex items-center gap-2 ml-auto">
@@ -204,7 +284,6 @@ export default function PythonConsole() {
             </div>
           </div>
 
-          {/* Code editor */}
           <div className="flex-1 min-h-0 p-4 md:p-6 flex flex-col gap-4">
             <textarea
               data-ocid="python.editor.textarea"
@@ -213,9 +292,14 @@ export default function PythonConsole() {
               className="code-editor flex-1 min-h-[240px] w-full rounded-xl p-4 text-sm font-mono outline-none resize-none border border-border/40 focus:border-green-500/60 transition-colors"
               spellCheck={false}
               placeholder="# Write your Python code here..."
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  handleRun();
+                }
+              }}
             />
 
-            {/* Output console */}
             <AnimatePresence>
               {output && (
                 <motion.div
@@ -240,20 +324,22 @@ export default function PythonConsole() {
                       <X className="w-4 h-4" />
                     </button>
                   </div>
-                  <div className="output-console p-4 max-h-52 overflow-auto whitespace-pre">
+                  <div className="output-console p-4 max-h-52 overflow-auto whitespace-pre font-mono text-sm">
                     {output}
                   </div>
                 </motion.div>
               )}
             </AnimatePresence>
 
-            {/* Note */}
             <div className="flex items-start gap-2 p-3 rounded-lg bg-muted/30 border border-border/50">
               <Terminal className="w-4 h-4 text-muted-foreground flex-shrink-0 mt-0.5" />
               <p className="text-xs text-muted-foreground">
-                <strong className="text-foreground">Simulation Mode:</strong>{" "}
-                Python runs as a client-side simulation. Connect a real Python
-                backend for live execution, library support, and file access.
+                <strong className="text-foreground">Tip:</strong> Press{" "}
+                <kbd className="px-1 py-0.5 rounded bg-muted border border-border font-mono text-xs">
+                  Ctrl+Enter
+                </kbd>{" "}
+                to run. Pyodide supports the full Python standard library. Note:
+                Initial load may take 5–10 seconds.
               </p>
             </div>
           </div>

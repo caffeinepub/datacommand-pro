@@ -22,52 +22,118 @@ import {
   Copy,
   Database,
   FolderOpen,
+  Loader2,
   Play,
   Save,
   Trash2,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-const MOCK_RESULTS = {
-  columns: ["id", "name", "email", "department", "salary"],
-  rows: [
-    ["1", "Alice Johnson", "alice@company.com", "Engineering", "$120,000"],
-    ["2", "Bob Smith", "bob@company.com", "Marketing", "$85,000"],
-    ["3", "Carol Davis", "carol@company.com", "Engineering", "$115,000"],
-    ["4", "David Wilson", "david@company.com", "Finance", "$95,000"],
-    ["5", "Eva Martinez", "eva@company.com", "Design", "$90,000"],
-  ],
-};
-
 const DEFAULT_SQL =
-  "-- DataCommand Pro SQL Editor\nSELECT\n  e.id,\n  e.name,\n  e.email,\n  d.name AS department,\n  e.salary\nFROM employees e\nJOIN departments d ON e.dept_id = d.id\nWHERE e.salary > 80000\nORDER BY e.salary DESC\nLIMIT 10;";
+  "-- Data-Analyst SQL Editor — Real SQLite in your browser!\nSELECT\n  e.id,\n  e.name,\n  e.email,\n  d.name AS department,\n  e.salary\nFROM employees e\nJOIN departments d ON e.dept_id = d.id\nORDER BY e.salary DESC;";
+
+const SEED_SQL = `
+CREATE TABLE employees (id INTEGER, name TEXT, email TEXT, dept_id INTEGER, salary INTEGER);
+INSERT INTO employees VALUES (1,'Alice Johnson','alice@company.com',1,120000);
+INSERT INTO employees VALUES (2,'Bob Smith','bob@company.com',2,85000);
+INSERT INTO employees VALUES (3,'Carol Davis','carol@company.com',1,115000);
+INSERT INTO employees VALUES (4,'David Wilson','david@company.com',3,95000);
+INSERT INTO employees VALUES (5,'Eva Martinez','eva@company.com',4,90000);
+
+CREATE TABLE departments (id INTEGER, name TEXT, budget INTEGER);
+INSERT INTO departments VALUES (1,'Engineering',500000);
+INSERT INTO departments VALUES (2,'Marketing',200000);
+INSERT INTO departments VALUES (3,'Finance',300000);
+INSERT INTO departments VALUES (4,'Design',150000);
+
+CREATE TABLE sales (id INTEGER, product TEXT, amount REAL, month TEXT);
+INSERT INTO sales VALUES (1,'Product A',45200,'Jan');
+INSERT INTO sales VALUES (2,'Product B',52100,'Feb');
+INSERT INTO sales VALUES (3,'Product A',48700,'Mar');
+INSERT INTO sales VALUES (4,'Product C',61300,'Apr');
+INSERT INTO sales VALUES (5,'Product B',58900,'May');
+`;
+
+type QueryResult = {
+  columns: string[];
+  rows: (string | number | null)[][];
+};
 
 export default function SQLEditor() {
   const [code, setCode] = useState(DEFAULT_SQL);
   const [queryName, setQueryName] = useState("");
   const [queries, setQueries] = useState<SqlQuery[]>(loadSqlQueries);
-  const [results, setResults] = useState<typeof MOCK_RESULTS | null>(null);
+  const [results, setResults] = useState<QueryResult | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [runTime, setRunTime] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [sqlReady, setSqlReady] = useState(false);
+  const [sqlLoading, setSqlLoading] = useState(true);
+  const [sqlError, setSqlError] = useState<string | null>(null);
+  const dbRef = useRef<any>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const initSqlJs = (await import("sql.js")).default;
+        const SQL = await initSqlJs({
+          locateFile: (file: string) => `https://sql.js.org/dist/${file}`,
+        });
+        if (cancelled) return;
+        const db = new SQL.Database();
+        db.run(SEED_SQL);
+        dbRef.current = db;
+        setSqlReady(true);
+      } catch (e: any) {
+        if (!cancelled) setSqlError(e?.message ?? "Failed to load SQL engine");
+      } finally {
+        if (!cancelled) setSqlLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleRun = async () => {
     if (!code.trim()) {
       toast.error("Please write a query first");
       return;
     }
+    if (!dbRef.current) {
+      toast.error("SQL engine not ready");
+      return;
+    }
     setIsRunning(true);
     setResults(null);
     const t0 = performance.now();
-    await new Promise((r) => setTimeout(r, 600));
-    const elapsed = ((performance.now() - t0) / 1000).toFixed(3);
-    setResults(MOCK_RESULTS);
-    setRunTime(elapsed);
-    setIsRunning(false);
-    toast.success("Query executed — 5 rows returned");
+    try {
+      const res = dbRef.current.exec(code);
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(3);
+      if (res && res.length > 0) {
+        const { columns, values } = res[0];
+        setResults({ columns, rows: values });
+        setRunTime(elapsed);
+        toast.success(`Query executed — ${values.length} rows returned`);
+      } else {
+        setResults({
+          columns: ["Result"],
+          rows: [["Query executed successfully (no rows returned)"]],
+        });
+        setRunTime(elapsed);
+        toast.success("Query executed successfully");
+      }
+    } catch (e: any) {
+      toast.error(`SQL Error: ${e?.message}`);
+      setSqlError(e?.message);
+      setTimeout(() => setSqlError(null), 5000);
+    } finally {
+      setIsRunning(false);
+    }
   };
 
   const handleSave = () => {
@@ -126,24 +192,41 @@ export default function SQLEditor() {
             SQL Query Editor
           </h1>
           <p className="text-xs text-muted-foreground">
-            Write, run, and save your SQL queries
+            Real SQLite engine — live in your browser
           </p>
+        </div>
+        <div className="ml-auto">
+          {sqlLoading && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/30 text-xs text-yellow-400">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Initializing SQL engine...
+            </span>
+          )}
+          {sqlReady && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-green-500/10 border border-green-500/30 text-xs text-green-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+              Live
+            </span>
+          )}
         </div>
       </div>
 
       <div className="flex flex-1 min-h-0">
-        {/* Editor + Results */}
         <div className="flex-1 flex flex-col min-h-0">
           {/* Toolbar */}
           <div className="flex flex-wrap items-center gap-2 px-4 md:px-6 py-3 border-b border-border bg-card/50">
             <Button
               data-ocid="sql.run.button"
               onClick={handleRun}
-              disabled={isRunning}
+              disabled={isRunning || !sqlReady}
               size="sm"
               className="bg-primary text-primary-foreground hover:bg-primary/90 font-semibold"
             >
-              <Play className="w-3.5 h-3.5 mr-1.5" />
+              {isRunning ? (
+                <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+              ) : (
+                <Play className="w-3.5 h-3.5 mr-1.5" />
+              )}
               {isRunning ? "Running..." : "Run Query"}
             </Button>
             <div className="flex items-center gap-2 ml-auto">
@@ -164,7 +247,6 @@ export default function SQLEditor() {
                 <Save className="w-3.5 h-3.5 mr-1" /> Save
               </Button>
               <Button
-                data-ocid="sql.copy.button"
                 onClick={handleCopy}
                 size="sm"
                 variant="ghost"
@@ -177,7 +259,6 @@ export default function SQLEditor() {
                 )}
               </Button>
               <Button
-                data-ocid="sql.clear.button"
                 onClick={handleClear}
                 size="sm"
                 variant="ghost"
@@ -188,16 +269,51 @@ export default function SQLEditor() {
             </div>
           </div>
 
-          {/* Code editor */}
           <div className="flex-1 min-h-0 p-4 md:p-6 flex flex-col gap-4">
+            {/* Schema hint */}
+            <div className="text-xs text-muted-foreground font-mono bg-muted/20 rounded-lg px-4 py-2 border border-border/40">
+              <span className="text-primary font-semibold">Tables:</span>{" "}
+              <span className="text-foreground/70">employees</span>
+              {" (id, name, email, dept_id, salary) · "}
+              <span className="text-foreground/70">departments</span>
+              {" (id, name, budget) · "}
+              <span className="text-foreground/70">sales</span>
+              {" (id, product, amount, month)"}
+            </div>
+
             <textarea
               data-ocid="sql.editor.textarea"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              className="code-editor flex-1 min-h-[220px] w-full rounded-xl p-4 text-sm font-mono outline-none resize-none border border-border/40 focus:border-primary/60 transition-colors"
+              className="code-editor flex-1 min-h-[200px] w-full rounded-xl p-4 text-sm font-mono outline-none resize-none border border-border/40 focus:border-primary/60 transition-colors"
               spellCheck={false}
               placeholder="-- Write your SQL query here..."
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  handleRun();
+                }
+              }}
             />
+
+            {/* SQL Error */}
+            <AnimatePresence>
+              {sqlError && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3"
+                >
+                  <p
+                    className="text-xs font-mono text-destructive"
+                    data-ocid="sql.error_state"
+                  >
+                    {sqlError}
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Results */}
             <AnimatePresence>
@@ -246,13 +362,22 @@ export default function SQLEditor() {
                       </TableHeader>
                       <TableBody>
                         {results.rows.map((row) => (
-                          <TableRow key={row[0]} className="hover:bg-muted/20">
+                          <TableRow
+                            key={`row-${String(row[0])}`}
+                            className="hover:bg-muted/20"
+                          >
                             {row.map((cell, ci) => (
                               <TableCell
                                 key={results.columns[ci]}
                                 className="font-mono text-xs py-2"
                               >
-                                {cell}
+                                {cell === null ? (
+                                  <span className="text-muted-foreground italic">
+                                    NULL
+                                  </span>
+                                ) : (
+                                  String(cell)
+                                )}
                               </TableCell>
                             ))}
                           </TableRow>

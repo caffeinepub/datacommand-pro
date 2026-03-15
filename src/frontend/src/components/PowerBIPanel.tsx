@@ -14,12 +14,13 @@ import {
   Clock,
   ExternalLink,
   LayoutDashboard,
+  Loader2,
   Play,
   Save,
   Trash2,
 } from "lucide-react";
 import { motion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 export default function PowerBIPanel() {
@@ -27,6 +28,16 @@ export default function PowerBIPanel() {
   const [reportName, setReportName] = useState("");
   const [activeUrl, setActiveUrl] = useState("");
   const [reports, setReports] = useState<PowerBIReport[]>(loadPowerBIReports);
+  const [iframeLoading, setIframeLoading] = useState(false);
+  const [iframeError, setIframeError] = useState(false);
+  const [showSlowWarning, setShowSlowWarning] = useState(false);
+  const slowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    };
+  }, []);
 
   const handleLoad = () => {
     const url = embedUrl.trim();
@@ -35,7 +46,24 @@ export default function PowerBIPanel() {
       return;
     }
     setActiveUrl(url);
-    toast.success("Dashboard loaded");
+    setIframeLoading(true);
+    setIframeError(false);
+    setShowSlowWarning(false);
+    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    slowTimerRef.current = setTimeout(() => setShowSlowWarning(true), 10000);
+    toast.success("Loading dashboard...");
+  };
+
+  const handleIframeLoad = () => {
+    setIframeLoading(false);
+    setShowSlowWarning(false);
+    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+  };
+
+  const handleIframeError = () => {
+    setIframeLoading(false);
+    setIframeError(true);
+    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
   };
 
   const handleSave = () => {
@@ -73,7 +101,21 @@ export default function PowerBIPanel() {
   const handleLoadSaved = (report: PowerBIReport) => {
     setEmbedUrl(report.embedUrl);
     setActiveUrl(report.embedUrl);
+    setIframeLoading(true);
+    setIframeError(false);
+    setShowSlowWarning(false);
+    if (slowTimerRef.current) clearTimeout(slowTimerRef.current);
+    slowTimerRef.current = setTimeout(() => setShowSlowWarning(true), 10000);
     toast.success(`"${report.name}" loaded`);
+  };
+
+  const handleOpenInTab = () => {
+    const url = embedUrl.trim() || activeUrl;
+    if (!url) {
+      toast.error("Please enter an embed URL first");
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -94,7 +136,6 @@ export default function PowerBIPanel() {
       </div>
 
       <div className="flex flex-1 min-h-0">
-        {/* Main content */}
         <div className="flex-1 flex flex-col min-h-0 overflow-auto">
           {/* Controls */}
           <div className="px-6 md:px-8 py-5 border-b border-border bg-card/50">
@@ -113,16 +154,30 @@ export default function PowerBIPanel() {
                   value={embedUrl}
                   onChange={(e) => setEmbedUrl(e.target.value)}
                   className="font-mono text-xs"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleLoad();
+                  }}
                 />
               </div>
-              <Button
-                data-ocid="powerbi.load.button"
-                onClick={handleLoad}
-                className="bg-yellow-500/80 hover:bg-yellow-500 text-black font-semibold"
-              >
-                <Play className="w-4 h-4 mr-2" />
-                Load Dashboard
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  data-ocid="powerbi.load.button"
+                  onClick={handleLoad}
+                  className="flex-1 bg-yellow-500/80 hover:bg-yellow-500 text-black font-semibold"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  Load Dashboard
+                </Button>
+                <Button
+                  data-ocid="powerbi.open.button"
+                  onClick={handleOpenInTab}
+                  variant="outline"
+                  title="Open in new tab"
+                  className="border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                </Button>
+              </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-3">
               <div className="md:col-span-2">
@@ -150,6 +205,16 @@ export default function PowerBIPanel() {
                 Save Report
               </Button>
             </div>
+            {/* Instructions */}
+            <div className="mt-3 p-3 rounded-lg bg-muted/30 border border-border/50 text-xs text-muted-foreground">
+              <strong className="text-foreground">
+                How to get a Power BI embed URL:
+              </strong>{" "}
+              Go to Power BI → your report →{" "}
+              <em>File → Embed report → Publish to web</em> → copy the{" "}
+              <code className="bg-muted px-1 rounded">iframe src</code> URL from
+              the generated code.
+            </div>
           </div>
 
           {/* iFrame / Placeholder */}
@@ -159,14 +224,54 @@ export default function PowerBIPanel() {
                 key={activeUrl}
                 initial={{ opacity: 0, scale: 0.98 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="w-full h-full min-h-[400px] rounded-xl overflow-hidden border border-border glow-cyan"
+                className="relative w-full h-full min-h-[400px] rounded-xl overflow-hidden border border-border glow-cyan"
               >
+                {iframeLoading && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-card/80 backdrop-blur-sm">
+                    <Loader2 className="w-8 h-8 animate-spin text-yellow-400 mb-3" />
+                    <p className="text-sm text-muted-foreground">
+                      Loading dashboard...
+                    </p>
+                    {showSlowWarning && (
+                      <p className="text-xs text-muted-foreground mt-3 max-w-sm text-center px-4">
+                        If the dashboard isn't loading, make sure you're using a
+                        'Publish to web' embed URL from Power BI, not a regular
+                        report URL.
+                      </p>
+                    )}
+                  </div>
+                )}
+                {iframeError && (
+                  <div
+                    data-ocid="powerbi.error_state"
+                    className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-card/90 text-center px-8"
+                  >
+                    <p className="font-semibold text-foreground mb-2">
+                      Dashboard failed to load
+                    </p>
+                    <p className="text-xs text-muted-foreground max-w-sm">
+                      Make sure you're using a 'Publish to web' embed URL. Use
+                      the{" "}
+                      <button
+                        type="button"
+                        className="text-primary underline"
+                        onClick={handleOpenInTab}
+                      >
+                        Open in new tab
+                      </button>{" "}
+                      option as a fallback.
+                    </p>
+                  </div>
+                )}
                 <iframe
                   src={activeUrl}
                   className="w-full h-full min-h-[400px]"
                   title="Power BI Dashboard"
                   allowFullScreen
                   frameBorder="0"
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                  onLoad={handleIframeLoad}
+                  onError={handleIframeError}
                 />
               </motion.div>
             ) : (
@@ -183,8 +288,13 @@ export default function PowerBIPanel() {
                   <strong>Load Dashboard</strong> to view your report here.
                 </p>
                 <div className="mt-4 p-3 rounded-lg bg-muted/40 border border-border text-xs text-muted-foreground font-mono">
-                  Example: https://app.powerbi.com/reportEmbed?reportId=xxx
+                  Example: https://app.powerbi.com/view?r=eyJ...
                 </div>
+                <p className="mt-3 text-xs text-muted-foreground max-w-sm">
+                  <strong className="text-foreground">Tip:</strong> Use{" "}
+                  <em>File → Embed report → Publish to web</em> in Power BI to
+                  get an embeddable URL.
+                </p>
               </div>
             )}
           </div>
