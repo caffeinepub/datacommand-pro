@@ -19,8 +19,8 @@ import {
   Moon,
   Sun,
   X,
-  Zap,
 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import { useTheme } from "next-themes";
 import { useState } from "react";
 
@@ -47,12 +47,119 @@ const OCID_MAP: Record<Section, string> = {
   saved: "nav.saved.link",
 };
 
+function NSBadge({ size = "md" }: { size?: "sm" | "md" }) {
+  const s = size === "sm" ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm";
+  return (
+    <div
+      className={cn(
+        "flex-shrink-0 rounded-xl flex items-center justify-center font-bold tracking-tight shadow-lg",
+        s,
+      )}
+      style={{
+        background: "linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%)",
+        boxShadow:
+          "0 0 16px rgba(0,212,255,0.4), 0 0 32px rgba(124,58,237,0.2)",
+      }}
+    >
+      <span className="text-white drop-shadow">NS</span>
+    </div>
+  );
+}
+
+function ThemePillToggle({
+  collapsed,
+  isMobile,
+}: { collapsed: boolean; isMobile: boolean }) {
+  const { theme, setTheme } = useTheme();
+  const isDark = theme === "dark";
+
+  const toggle = (
+    <button
+      type="button"
+      data-ocid="nav.theme.toggle"
+      onClick={() => setTheme(isDark ? "light" : "dark")}
+      className={cn(
+        "relative flex items-center transition-all duration-300 rounded-full border",
+        collapsed && !isMobile
+          ? "w-9 h-9 justify-center border-border/50 hover:border-primary/60 hover:bg-primary/10 px-0"
+          : "w-full gap-3 px-3 py-2 border-transparent hover:border-primary/30 hover:bg-sidebar-accent",
+      )}
+      aria-label="Toggle theme"
+    >
+      {collapsed && !isMobile ? (
+        <div className="relative w-5 h-5 flex items-center justify-center">
+          <AnimatePresence mode="wait" initial={false}>
+            {isDark ? (
+              <motion.div
+                key="sun"
+                initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
+                animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                exit={{ rotate: 90, opacity: 0, scale: 0.5 }}
+                transition={{ duration: 0.25 }}
+              >
+                <Sun className="w-4 h-4 text-yellow-400" />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="moon"
+                initial={{ rotate: 90, opacity: 0, scale: 0.5 }}
+                animate={{ rotate: 0, opacity: 1, scale: 1 }}
+                exit={{ rotate: -90, opacity: 0, scale: 0.5 }}
+                transition={{ duration: 0.25 }}
+              >
+                <Moon className="w-4 h-4 text-primary" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      ) : (
+        <>
+          {/* Pill track */}
+          <div
+            className={cn(
+              "relative flex-shrink-0 w-11 h-6 rounded-full border transition-all duration-300",
+              isDark
+                ? "bg-primary/20 border-primary/40"
+                : "bg-yellow-400/20 border-yellow-400/40",
+            )}
+          >
+            <motion.div
+              className={cn(
+                "absolute top-0.5 w-5 h-5 rounded-full shadow-md flex items-center justify-center",
+                isDark ? "bg-primary" : "bg-yellow-400",
+              )}
+              animate={{ left: isDark ? "calc(100% - 22px)" : "2px" }}
+              transition={{ type: "spring", stiffness: 400, damping: 30 }}
+            >
+              {isDark ? (
+                <Sun className="w-3 h-3 text-primary-foreground" />
+              ) : (
+                <Moon className="w-3 h-3 text-background" />
+              )}
+            </motion.div>
+          </div>
+          <span className="text-sm font-medium text-muted-foreground">
+            {isDark ? "Light Mode" : "Dark Mode"}
+          </span>
+        </>
+      )}
+    </button>
+  );
+
+  if (collapsed && !isMobile) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>{toggle}</TooltipTrigger>
+        <TooltipContent side="right">Toggle Theme</TooltipContent>
+      </Tooltip>
+    );
+  }
+  return toggle;
+}
+
 export default function Sidebar({ activeSection, onNavigate }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const { theme, setTheme } = useTheme();
-
-  const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
 
   const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => (
     <div className="flex flex-col h-full">
@@ -63,9 +170,7 @@ export default function Sidebar({ activeSection, onNavigate }: SidebarProps) {
           collapsed && !isMobile && "justify-center px-2",
         )}
       >
-        <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-primary/20 border border-primary/40 flex items-center justify-center glow-cyan">
-          <Zap className="w-4 h-4 text-primary" />
-        </div>
+        <NSBadge />
         {(!collapsed || isMobile) && (
           <div className="min-w-0">
             <p className="font-display font-bold text-sm text-primary truncate leading-tight tracking-wide italic">
@@ -102,18 +207,18 @@ export default function Sidebar({ activeSection, onNavigate }: SidebarProps) {
                   setMobileOpen(false);
                 }}
                 className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group",
-                  collapsed && !isMobile ? "justify-center px-2" : "",
+                  "w-full flex items-center gap-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group relative overflow-hidden",
+                  collapsed && !isMobile ? "justify-center px-2" : "px-3",
                   isActive
-                    ? "bg-primary/15 text-primary border border-primary/30"
-                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                    ? "text-primary bg-gradient-to-r from-primary/15 to-transparent border-l-2 border-primary shadow-[inset_0_0_12px_rgba(0,212,255,0.08)]"
+                    : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground border-l-2 border-transparent",
                 )}
               >
                 <Icon
                   className={cn(
                     "w-4 h-4 flex-shrink-0 transition-colors",
                     isActive
-                      ? "text-primary"
+                      ? "text-primary drop-shadow-[0_0_6px_rgba(0,212,255,0.6)]"
                       : "text-muted-foreground group-hover:text-foreground",
                   )}
                 />
@@ -121,7 +226,10 @@ export default function Sidebar({ activeSection, onNavigate }: SidebarProps) {
                   <span className="truncate">{label}</span>
                 )}
                 {isActive && (!collapsed || isMobile) && (
-                  <span className="ml-auto w-1.5 h-1.5 rounded-full bg-primary" />
+                  <motion.span
+                    layoutId="nav-dot"
+                    className="ml-auto w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_6px_rgba(0,212,255,0.8)]"
+                  />
                 )}
               </button>
             );
@@ -142,31 +250,7 @@ export default function Sidebar({ activeSection, onNavigate }: SidebarProps) {
       {/* Bottom controls */}
       <div className="px-2 pb-4 space-y-1 border-t border-sidebar-border pt-3">
         <TooltipProvider delayDuration={0}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                data-ocid="nav.theme.toggle"
-                onClick={toggleTheme}
-                className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-muted-foreground hover:bg-sidebar-accent hover:text-foreground transition-all",
-                  collapsed && !isMobile ? "justify-center px-2" : "",
-                )}
-              >
-                {theme === "dark" ? (
-                  <Sun className="w-4 h-4 flex-shrink-0" />
-                ) : (
-                  <Moon className="w-4 h-4 flex-shrink-0" />
-                )}
-                {(!collapsed || isMobile) && (
-                  <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
-                )}
-              </button>
-            </TooltipTrigger>
-            {collapsed && !isMobile && (
-              <TooltipContent side="right">Toggle Theme</TooltipContent>
-            )}
-          </Tooltip>
+          <ThemePillToggle collapsed={collapsed} isMobile={isMobile} />
 
           {!isMobile && (
             <Tooltip>

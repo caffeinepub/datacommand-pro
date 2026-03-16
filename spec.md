@@ -1,34 +1,38 @@
 # Data-Analyst
 
 ## Current State
-- Power BI Panel: loads iframe with user-provided URL, no error handling, no guidance on embed URL format
-- SQL Editor: runs mock/simulated queries only, returns hardcoded fake data
-- Python Console: simulates output with hardcoded strings, no real execution
+- Dark-themed app with sidebar, 3D hero, stats cards, quick actions, and feature cards
+- Sidebar has icons + labels, collapse toggle, theme toggle, tooltips on collapse
+- Stats show raw numbers (0 Saved Queries, etc.)
+- Hero has 3D canvas with rotating shapes
+- Buttons use plain primary color, no glow/hover effects
+- Dark mode toggle is a small icon button in the sidebar
 
 ## Requested Changes (Diff)
 
 ### Add
-- SQL.js (SQLite WebAssembly) for real, client-side SQL execution in the browser
-- Pyodide (Python WebAssembly) for real Python execution in the browser with pandas, numpy, matplotlib support
-- Power BI: better loading states, error detection, clearer URL format guidance, and iframe sandbox attributes
-- SQL: pre-loaded sample tables (employees, departments, sales) so users can run real queries immediately
-- Python: show real stdout output from Pyodide execution
-- Loading indicator while Pyodide/SQL.js initializes
+- Teal/cyan accent color for active sidebar items with stronger glow
+- Gradient backgrounds and soft box-shadows on cards/buttons
+- Hero section: add slow pulsing ring animation overlay on geometric shapes area
+- Stats panels: add progress bars, mini bar charts, and icon backgrounds with gradient
+- Sidebar: personal branding area with initials badge (NS) styled prominently
+- Dark/Light mode toggle: stylish animated pill toggle (sun/moon icons sliding)
+- Recent Activity section on dashboard showing last queries/snippets placeholders
+- Placeholder mini bar chart in stats panels when value is 0
+- Hover glow effects on CTA buttons (SQL Editor, Power BI)
 
 ### Modify
-- SQLEditor.tsx: replace mock execution with sql.js WASM real execution
-- PythonConsole.tsx: replace simulated output with Pyodide real execution
-- PowerBIPanel.tsx: add error state handling, iframe onError/onLoad events, clearer instructions
+- Sidebar active items: stronger highlight with teal gradient + left border accent
+- Stats cards: richer layout with icon, value, progress bar, and trend label
+- Quick action cards: add glow-on-hover effect
+- Hero buttons: add glow/expand on hover animations
+- Sidebar logo area: replace plain icon with NS initials badge
+- Theme toggle: replace plain button with animated pill toggle
 
 ### Remove
-- MOCK_RESULTS constant from SQLEditor
-- SIMULATED_OUTPUT constant from PythonConsole
-- "Simulation Mode" badge from Python console
+- Plain unstyled stat number display (replaced with card panels)
 
 ## Implementation Plan
-1. Install sql.js and @types/sql.js npm packages
-2. Install pyodide npm package
-3. Rewrite SQLEditor to load sql.js, create in-memory SQLite DB with sample tables, execute real queries
-4. Rewrite PythonConsole to load Pyodide, run real Python with stdout capture
-5. Improve PowerBIPanel with iframe load/error events and better UX guidance
-6. Show initialization spinner while WASM engines load
+1. Update Sidebar: NS initials badge, stronger active state with left border + teal gradient, animated pill theme toggle
+2. Update Dashboard3D: enhanced stat cards with progress bars and mini bar chart placeholder, Recent Activity section, hero button glow effects, pulsing ring overlay on hero
+3. Update index.css: add glow-teal hover utility, gradient card depth variables

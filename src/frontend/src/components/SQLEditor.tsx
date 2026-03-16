@@ -79,6 +79,7 @@ export default function SQLEditor() {
     let cancelled = false;
     (async () => {
       try {
+        // @ts-ignore
         const initSqlJs = (await import("sql.js")).default;
         const SQL = await initSqlJs({
           locateFile: (file: string) => `https://sql.js.org/dist/${file}`,
